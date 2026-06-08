@@ -83,8 +83,27 @@ export const initializeStorage = async () => {
     if (!getStoredDonors()) {
       setStoredDonors(donorsData)
     }
-    if (!getStoredUsers()) {
+    const storedUsers = getStoredUsers()
+    if (!storedUsers) {
       setStoredUsers(usersData)
+    } else {
+      // Ensure any new seed users (like admin u012) are synced/imported
+      const updated = [...storedUsers]
+      let changed = false
+      usersData.forEach(seedUser => {
+        const index = storedUsers.findIndex(u => u.email.toLowerCase() === seedUser.email.toLowerCase())
+        if (index === -1) {
+          updated.push(seedUser)
+          changed = true
+        } else if (seedUser.email.toLowerCase() === 'admin@bloodconnect.com' && storedUsers[index].role !== 'admin') {
+          // If admin exists but doesn't have admin role/password, fix it
+          updated[index] = { ...updated[index], role: 'admin', password: 'admin123' }
+          changed = true
+        }
+      })
+      if (changed) {
+        setStoredUsers(updated)
+      }
     }
   }
 }
@@ -312,7 +331,7 @@ export const getUserById = async (id) => {
             id: firebaseUser.uid,
             name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
             email: firebaseUser.email,
-            role: 'user',
+            role: firebaseUser.email.toLowerCase().trim() === 'admin@bloodconnect.com' ? 'admin' : 'user',
             phone: firebaseUser.phoneNumber || '',
             bloodGroup: '',
             location: '',
@@ -325,12 +344,26 @@ export const getUserById = async (id) => {
         }
         throw new Error('User not found')
       }
-      const { password: _, ...safeUser } = { id: docSnap.id, ...docSnap.data() }
+      
+      let userData = docSnap.data()
+      if (userData.email.toLowerCase().trim() === 'admin@bloodconnect.com' && userData.role !== 'admin') {
+        userData = { ...userData, role: 'admin' }
+        await updateDoc(docRef, { role: 'admin' })
+      }
+      
+      const { password: _, ...safeUser } = { id: docSnap.id, ...userData }
       return safeUser
     } else {
       const users = getStoredUsers() ?? usersData
-      const user = users.find(u => u.id === id)
-      if (!user) throw new Error('User not found')
+      const userIndex = users.findIndex(u => u.id === id)
+      if (userIndex === -1) throw new Error('User not found')
+      
+      const user = users[userIndex]
+      if (user.email.toLowerCase() === 'admin@bloodconnect.com' && user.role !== 'admin') {
+        user.role = 'admin'
+        setStoredUsers(users)
+      }
+      
       const { password: _, ...safeUser } = user
       return safeUser
     }
@@ -391,7 +424,7 @@ export const loginUser = async (email, password) => {
           id: uid,
           name: email.split('@')[0],
           email: email.toLowerCase().trim(),
-          role: 'user',
+          role: email.toLowerCase().trim() === 'admin@bloodconnect.com' ? 'admin' : 'user',
           phone: '',
           bloodGroup: '',
           location: '',
@@ -403,7 +436,13 @@ export const loginUser = async (email, password) => {
         return defaultProfile
       }
 
-      const { password: _, ...safeUser } = { id: docSnap.id, ...docSnap.data() }
+      let userData = docSnap.data()
+      if (email.toLowerCase().trim() === 'admin@bloodconnect.com' && userData.role !== 'admin') {
+        userData = { ...userData, role: 'admin' }
+        await updateDoc(docRef, { role: 'admin' })
+      }
+
+      const { password: _, ...safeUser } = { id: docSnap.id, ...userData }
       return safeUser
     } else {
       const users = getStoredUsers() ?? usersData
@@ -412,12 +451,18 @@ export const loginUser = async (email, password) => {
         throw new Error('Email not found. Please check your email address.')
       }
 
-      const user = users.find(
+      const userIndex = users.findIndex(
         u => u.email.toLowerCase() === email.toLowerCase().trim() &&
           u.password === password
       )
-      if (!user) {
+      if (userIndex === -1) {
         throw new Error('Incorrect password. Please try again.')
+      }
+
+      const user = users[userIndex]
+      if (user.email.toLowerCase() === 'admin@bloodconnect.com' && user.role !== 'admin') {
+        user.role = 'admin'
+        setStoredUsers(users)
       }
 
       const { password: _, ...safeUser } = user

@@ -476,6 +476,22 @@ const Navbar = () => {
                     My Profile
                   </NavLink>
 
+                  {isAdmin && (
+                    <NavLink
+                      to="/admin"
+                      className={({ isActive }) => [
+                        'flex items-center gap-3 px-4 py-3 rounded-xl',
+                        'text-sm font-medium transition-colors duration-150',
+                        isActive
+                          ? 'bg-red-50 text-red-600'
+                          : 'text-gray-600 hover:bg-gray-50',
+                      ].join(' ')}
+                    >
+                      <Shield size={16} />
+                      Admin Panel
+                    </NavLink>
+                  )}
+
                   {/* Logout */}
                   <button
                     type="button"
